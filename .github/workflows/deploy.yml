@@ -1,0 +1,50 @@
+name: Deploy to EC2 (Amazon Linux)
+
+on:
+  push:
+    branches:
+      - master  # Change to 'main' if using main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+
+    - name: Add EC2 to known hosts
+      run: |
+        ssh-keyscan -H ${{ secrets.EC2_PUBLIC_IP }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to EC2 (Amazon Linux)
+      run: |
+        ssh -i ~/.ssh/id_rsa ec2-user@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
+          # Install dependencies if not already installed
+          sudo yum update -y
+          sudo yum install -y git python3 pip
+
+          # Kill any existing uvicorn process
+          pkill uvicorn || true
+
+          # Clone or pull latest code
+          if [ -d "fastapi-weather" ]; then
+            cd fastapi-weather
+            git pull origin master
+          else
+            git clone https://github.com/shriyaraotula/fastapi-weather.git
+            cd fastapi-weather
+          fi
+
+          # Install Python dependencies
+          pip3 install --user -r requirements.txt
+
+          # Run FastAPI with nohup
+          nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 > output.log 2>&1 &
+        EOF
